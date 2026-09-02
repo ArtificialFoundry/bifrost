@@ -27,9 +27,19 @@
   # Set environment for CGO-enabled build (required for go-sqlite3)
   ENV CGO_ENABLED=1 GOOS=linux
 
+  # BIFROST-FORK: inject our patched local modules into the versioned-module build.
+  # transports/go.mod carries `replace` directives that send github.com/maximhq/bifrost/core
+  # -> /core and github.com/maximhq/bifrost/plugins/logging -> /plugins/logging so our
+  # source edits (Copilot provider in core, streaming-persist fix in plugins/logging) are
+  # compiled in. Only the two patched modules are copied as local source; every other
+  # upstream module (framework/governance/routing/...) still resolves from the Go module
+  # proxy at its pinned version (unchanged upstream, nothing to override).
+  COPY core/go.mod core/go.sum /core/
+  COPY core/ /core/
+  COPY plugins/logging/go.mod plugins/logging/go.sum /plugins/logging/
+  COPY plugins/logging/ /plugins/logging/
+
   COPY transports/go.mod transports/go.sum ./
-  RUN ls
-  RUN cat go.mod
   RUN go mod download
 
   # Copy source code and dependencies

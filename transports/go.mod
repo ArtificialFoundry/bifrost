@@ -241,3 +241,12 @@ require (
 	gorm.io/driver/clickhouse v0.7.0 // indirect
 	gorm.io/driver/postgres v1.6.0 // indirect
 )
+
+// BIFROST-FORK: local source overrides for the two modules we patch (Copilot
+// provider lands in core; streaming-persist fix in plugins/logging). Both are
+// private fork edits not published upstream. framework/governance/routing/etc.
+// stay at their pinned proxy versions (unmodified upstream). Matches the COPY
+// in transports/Dockerfile (module root /app -> ../core, ../plugins/logging).
+replace github.com/maximhq/bifrost/core => ../core
+
+replace github.com/maximhq/bifrost/plugins/logging => ../plugins/logging
