@@ -151,21 +151,29 @@ type CreateRoutingRuleRequest struct {
 	ScopeID       *string                             `json:"scope_id,omitempty"`
 	Query         map[string]any                      `json:"query,omitempty"`
 	Priority      int                                 `json:"priority,omitempty"` // Defaults to 0 if not provided
+	Strategy      string                              `json:"strategy,omitempty"` // ""/"weighted" = stock; sticky-round-robin/latency-based/circuit-breaker
+	StickyLimit   int                                 `json:"sticky_limit,omitempty"`
+	CircuitBreakerThreshold       int                 `json:"circuit_breaker_threshold,omitempty"`
+	CircuitBreakerCooldownSeconds int                 `json:"circuit_breaker_cooldown_seconds,omitempty"`
 }
 
 // UpdateRoutingRuleRequest represents the request body for updating a routing rule
 type UpdateRoutingRuleRequest struct {
-	Name          *string                             `json:"name,omitempty"`
-	Description   *string                             `json:"description,omitempty"`
-	Enabled       *bool                               `json:"enabled,omitempty"`
-	ChainRule     *bool                               `json:"chain_rule,omitempty"`
-	CelExpression *string                             `json:"cel_expression,omitempty"`
-	Targets       []RoutingTarget                     `json:"targets,omitempty"` // If provided, replaces all existing targets; weights must sum to 1
-	Fallbacks     []configstoreTables.RoutingFallback `json:"fallbacks,omitempty"`
-	Query         map[string]any                      `json:"query,omitempty"`
-	Priority      *int                                `json:"priority,omitempty"`
-	Scope         *string                             `json:"scope,omitempty"`
-	ScopeID       *string                             `json:"scope_id,omitempty"`
+	Name                        *string                             `json:"name,omitempty"`
+	Description                 *string                             `json:"description,omitempty"`
+	Enabled                     *bool                               `json:"enabled,omitempty"`
+	ChainRule                   *bool                               `json:"chain_rule,omitempty"`
+	CelExpression               *string                             `json:"cel_expression,omitempty"`
+	Targets                     []RoutingTarget                     `json:"targets,omitempty"` // If provided, replaces all existing targets; weights must sum to 1
+	Fallbacks                   []configstoreTables.RoutingFallback `json:"fallbacks,omitempty"`
+	Query                       map[string]any                      `json:"query,omitempty"`
+	Priority                    *int                                `json:"priority,omitempty"`
+	Scope                       *string                             `json:"scope,omitempty"`
+	ScopeID                     *string                             `json:"scope_id,omitempty"`
+	Strategy                    *string                             `json:"strategy,omitempty"`
+	StickyLimit                 *int                                `json:"sticky_limit,omitempty"`
+	CircuitBreakerThreshold     *int                                `json:"circuit_breaker_threshold,omitempty"`
+	CircuitBreakerCooldownSeconds *int                              `json:"circuit_breaker_cooldown_seconds,omitempty"`
 }
 
 // validRoutingScopes contains the allowed scope values for routing rules
@@ -655,6 +663,10 @@ func (h *RoutingHandler) createRoutingRule(ctx *fasthttp.RequestCtx) {
 		Scope:           scope,
 		ScopeID:         req.ScopeID,
 		Priority:        req.Priority,
+		Strategy:        req.Strategy,
+		StickyLimit:     req.StickyLimit,
+		CircuitBreakerThreshold:       req.CircuitBreakerThreshold,
+		CircuitBreakerCooldownSeconds: req.CircuitBreakerCooldownSeconds,
 		ParsedFallbacks: req.Fallbacks,
 		ParsedQuery:     req.Query,
 	}
@@ -743,6 +755,18 @@ func (h *RoutingHandler) updateRoutingRule(ctx *fasthttp.RequestCtx) {
 	}
 	if req.Priority != nil {
 		rule.Priority = *req.Priority
+	}
+	if req.Strategy != nil {
+		rule.Strategy = *req.Strategy
+	}
+	if req.StickyLimit != nil {
+		rule.StickyLimit = *req.StickyLimit
+	}
+	if req.CircuitBreakerThreshold != nil {
+		rule.CircuitBreakerThreshold = *req.CircuitBreakerThreshold
+	}
+	if req.CircuitBreakerCooldownSeconds != nil {
+		rule.CircuitBreakerCooldownSeconds = *req.CircuitBreakerCooldownSeconds
 	}
 	if req.Query != nil {
 		rule.ParsedQuery = req.Query

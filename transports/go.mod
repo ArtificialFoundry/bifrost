@@ -242,11 +242,20 @@ require (
 	gorm.io/driver/postgres v1.6.0 // indirect
 )
 
-// BIFROST-FORK: local source overrides for the two modules we patch (Copilot
-// provider lands in core; streaming-persist fix in plugins/logging). Both are
-// private fork edits not published upstream. framework/governance/routing/etc.
-// stay at their pinned proxy versions (unmodified upstream). Matches the COPY
-// in transports/Dockerfile (module root /app -> ../core, ../plugins/logging).
+// BIFROST-FORK: local source overrides for the modules we patch. Copilot
+// provider lands in core; streaming-persist fix in plugins/logging. Routing
+// strategies (sticky/latency/circuit-breaker) land in framework
+// (TableRoutingRule strategy fields) and plugins/routing (strategies.go +
+// PostLLMHook observe path). These are private fork edits not published
+// upstream; unmodified modules stay at their pinned proxy versions. Matches
+// the COPY statements that add these module trees in transports/Dockerfile
+// and in each patched module's own go.mod replace set.
 replace github.com/maximhq/bifrost/core => ../core
 
 replace github.com/maximhq/bifrost/plugins/logging => ../plugins/logging
+
+replace github.com/maximhq/bifrost/framework => ../framework
+
+replace github.com/maximhq/bifrost/plugins/routing => ../plugins/routing
+
+replace github.com/maximhq/bifrost/plugins/governance => ../plugins/governance
