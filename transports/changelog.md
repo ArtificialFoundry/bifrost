@@ -1,3 +1,12 @@
+## 🍴 UpperSubstrate Fork Notes
+
+This build carries the `uppersubstrate/bifrost` fork patches on top of upstream v2.2.6:
+
+- **Copilot provider unification (INC-049)** — GitHub Copilot provider with two-layer OAuth (device-code + GitHub App), unified under `core/providers/copilot/` and registered under the `copilot` alias in the provider registry.
+- **Routing strategies** — sticky-round-robin, latency-based, and circuit-breaker target-selection strategies for routing rules (additive on top of upstream's weighted routing and fallback pinning).
+- **Logging streaming-persist self-heal** — flushes parked streaming completion entries so they are not lost when the completion races the trace close.
+- **Build wiring** — local module replace directives and Dockerfile COPY for the patched core/framework/logging/routing/governance modules.
+
 ## ✨ Features
 
 - **OSS Management API Setup Lock** - While dashboard auth is not active (no admin account, or auth disabled), every non-public `/api` call on OSS Bifrost now needs the setup token, sent as the `X-Bifrost-Setup-Token` header or as the `bifrost_setup_session` cookie the dashboard gets from `POST /api/session/setup`. A missing token returns `401`. A wrong token, or no token set on the server, returns `403`. `/health`, `/api/version`, the session login routes, `/.well-known/*` and whitelisted routes stay public. The lock lifts as soon as an enabled admin is saved (#8010)

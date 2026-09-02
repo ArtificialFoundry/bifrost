@@ -37,7 +37,6 @@ const chainChildrenPageLimit = 1000;
 export default function LogsPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [showEmptyState, setShowEmptyState] = useState(false);
-	const hasCheckedEmptyState = useRef(false);
 
 	const hasDeleteAccess = useRbac(RbacResource.Logs, RbacOperation.Delete);
 	const hasRevealAccess = useRbac(RbacResource.Logs, RbacOperation.Reveal);
@@ -335,7 +334,7 @@ export default function LogsPage() {
 			rootsOnly: grouped,
 		},
 		{
-			pollingInterval: showEmptyState || polling ? 10000 : 0,
+			pollingInterval: showEmptyState || polling ? 3000 : 0,
 			skipPollingIfUnfocused: true,
 		},
 	);
@@ -351,7 +350,7 @@ export default function LogsPage() {
 			comparePrevious: true,
 		},
 		{
-			pollingInterval: polling ? 10000 : 0,
+			pollingInterval: polling ? 3000 : 0,
 			skipPollingIfUnfocused: true,
 		},
 	);
@@ -393,7 +392,7 @@ export default function LogsPage() {
 			filters,
 		},
 		{
-			pollingInterval: polling ? 10000 : 0,
+			pollingInterval: polling ? 3000 : 0,
 			skipPollingIfUnfocused: true,
 		},
 	);
@@ -416,16 +415,19 @@ export default function LogsPage() {
 		refetchHistogram();
 	}, [refetchLogs, refreshStrip, refetchHistogram]);
 
-	// Set showEmptyState on first response; clear it as soon as logs appear.
+	// Show the empty/onboarding state reactively from the settled data, with no
+	// persistent one-shot latch. Previously this latched on the FIRST `data`
+	// snapshot and never self-healed, so a cold mount (fresh browser) that
+	// sampled a transient empty/early response showed the onboarding screen
+	// forever even once has_logs=true responses were arriving — the Logs page
+	// rendered empty in any fresh browser despite real data being served.
+	// Mirror the latest settled data into state instead: it self-heals on every
+	// response, and while fetching we keep the previous value so we never flash
+	// empty during the settle.
 	useEffect(() => {
-		if (!logsData) return;
-		if (!hasCheckedEmptyState.current) {
-			setShowEmptyState(!logsData.has_logs);
-			hasCheckedEmptyState.current = true;
-		} else if (showEmptyState && logsData.has_logs) {
-			setShowEmptyState(false);
-		}
-	}, [logsData, showEmptyState]);
+		if (!logsData || logsIsFetching) return;
+		setShowEmptyState(!logsData.has_logs);
+	}, [logsData, logsIsFetching]);
 
 	const handleFilterByParentRequestId = useCallback(
 		(parentRequestId: string) => {

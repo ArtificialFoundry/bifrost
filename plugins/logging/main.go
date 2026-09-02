@@ -363,6 +363,20 @@ const (
 	deferredUsageRetries   = 3
 	deferredUsageBackoff   = 250 * time.Millisecond
 	deferredUsageDBTimeout = 10 * time.Second
+
+	// BIFROST-FORK FIX: streamingFlushGrace bounds how long Inject waits for a
+	// late-parked streaming log entry. Successful streaming completions are NOT
+	// written to the DB in PostLLMHook; the final chunk's logging plugin parks the
+	// row in pendingLogsToInject keyed by the request trace ID, and it is only
+	// flushable later when Inject fires (traceCompleter -> CompleteAndFlushTrace
+	// -> Inject runs on the HTTP producer goroutine after the stream drains). If
+	// Inject races ahead of that park (channel-send vs producer-drain under load /
+	// restart), LoadAndDelete below misses and the row would be silently dropped.
+	// We poll briefly on a miss so a late park is still flushed. Bounded, and only
+	// engaged on a miss, so the normal path (entry already parked) is unchanged.
+	// The real race window is sub-millisecond to a few ms (park precedes the final
+	// chunk send), so 100ms is far more than enough while staying a hard cap.
+	streamingFlushGrace = 100 * time.Millisecond
 )
 
 // sleepCtx sleeps for d, returning false if the plugin context is cancelled first.
@@ -2559,7 +2573,29 @@ func (p *LoggerPlugin) Inject(_ context.Context, trace *schemas.Trace) error {
 	if joinKey == "" {
 		joinKey = trace.TraceID
 	}
+	// BIFROST-FORK FIX: belt-and-suspenders flush for successful streaming
+	// completions. The producer goroutine's deferred CompleteAndFlushTrace
+	// (which ultimately calls Inject) can race ahead of the provider goroutine's
+	// final-chunk storeOrEnqueueEntry, which is what parks the row here. When
+	// that happens the first LoadAndDelete below misses and — without a retry —
+	// the row is silently dropped (production symptom INC-039: successful
+	// stream=true completions never appear in logs.db). Poll a bounded grace
+	// window so a late park is still flushed. The grace engages only on a miss
+	// and is skipped during shutdown, so the common path (entry already parked,
+	// or no entry expected) has zero added latency.
 	entryVal, ok := p.pendingLogsToInject.LoadAndDelete(joinKey)
+	if !ok && !p.closed.Load() {
+		deadline := time.Now().Add(streamingFlushGrace)
+		for time.Now().Before(deadline) {
+			if p.closed.Load() {
+				break
+			}
+			time.Sleep(time.Millisecond)
+			if entryVal, ok = p.pendingLogsToInject.LoadAndDelete(joinKey); ok {
+				break
+			}
+		}
+	}
 	if !ok {
 		return nil
 	}

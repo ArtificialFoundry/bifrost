@@ -58,8 +58,12 @@
   # musl: C standard library (required for CGO binaries)
   # libgcc: GCC runtime library
   # ca-certificates: For HTTPS connections
+  # nodejs + npm: required by Bifrost's MCP client stdio transport, which
+  #   spawns MCP servers via `npx` (e.g. @modelcontextprotocol/server-*).
+  #   Without Node in the runtime, adding any npx-based MCP server fails with
+  #   `exec: "npx": executable file not found in $PATH`.
   RUN apk upgrade --no-cache && \
-    apk add --no-cache musl libgcc ca-certificates zlib
+    apk add --no-cache musl libgcc ca-certificates zlib nodejs npm
 
   # Create data directory and set up user
   COPY --from=builder /app/main .

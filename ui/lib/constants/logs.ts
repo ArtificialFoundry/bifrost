@@ -32,6 +32,7 @@ export const KnownProvidersNames = [
 	"wafer",
 	"databricks",
 	"github-copilot",
+	"copilot",
 	"typesafe",
 ] as const;
 
@@ -173,6 +174,7 @@ export const ProviderLabels: Record<ProviderName, string> = {
 	wafer: "Wafer",
 	databricks: "Databricks",
 	"github-copilot": "GitHub Copilot",
+	copilot: "GitHub Copilot",
 	typesafe: "TypeSafe",
 } as const;
 
