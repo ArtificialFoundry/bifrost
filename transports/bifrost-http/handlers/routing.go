@@ -238,6 +238,28 @@ func sendRoutingScopeIDValidationError(ctx *fasthttp.RequestCtx, err error) {
 	SendError(ctx, 500, "Failed to verify scope_id")
 }
 
+// validRoutingStrategies lists the allowed target-selection strategy values.
+// Empty/"weighted" select the stock weighted-random behavior (rule.Strategy is
+// defaulted to "weighted" at the DB layer); the others activate fork state
+// machines in plugins/routing.
+var validRoutingStrategies = map[string]bool{
+	"":                  true, // default -> weighted at DB layer
+	"weighted":          true,
+	"sticky-round-robin": true,
+	"latency-based":      true,
+	"circuit-breaker":    true,
+}
+
+// validateRoutingStrategy returns an error when the strategy value is not one
+// of the allowed values, so a typo/malformed rule is rejected at write time
+// rather than silently degrading to weighted at eval time.
+func validateRoutingStrategy(strategy string) error {
+	if !validRoutingStrategies[strategy] {
+		return fmt.Errorf("invalid strategy %q: must be one of: weighted, sticky-round-robin, latency-based, circuit-breaker", strategy)
+	}
+	return nil
+}
+
 // validateRoutingScope validates that the scope value is one of the allowed values
 func validateRoutingScope(scope string) error {
 	if scope == "" {
@@ -593,6 +615,10 @@ func (h *RoutingHandler) createRoutingRule(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, 400, "at least one target is required")
 		return
 	}
+	if err := validateRoutingStrategy(req.Strategy); err != nil {
+		SendError(ctx, 400, err.Error())
+		return
+	}
 	if err := validateRoutingTargets(req.Targets); err != nil {
 		SendError(ctx, 400, err.Error())
 		return
@@ -732,6 +758,13 @@ func (h *RoutingHandler) updateRoutingRule(ctx *fasthttp.RequestCtx) {
 			return
 		}
 		rule.CelExpression = *req.CelExpression
+	}
+	// Validate strategy only when supplied.
+	if req.Strategy != nil {
+		if err := validateRoutingStrategy(*req.Strategy); err != nil {
+			SendError(ctx, 400, err.Error())
+			return
+		}
 	}
 	if req.Targets != nil {
 		if len(req.Targets) == 0 {
