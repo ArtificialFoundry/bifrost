@@ -561,14 +561,43 @@ func (p *RoutingPlugin) PreLLMHook(_ *schemas.BifrostContext, req *schemas.Bifro
 	return req, nil, nil
 }
 
-// PostLLMHook stamps routing-classification telemetry onto the response.
-// Routing's post hook runs before governance's (post hooks run in reverse
-// pre-hook order), so the stamp is visible to governance cost calculation and
-// every later post-hook consumer.
+// PostLLMHook stamps routing-classification telemetry onto the response and observes
+// which target actually served the request, feeding that outcome into the active routing
+// strategy (sticky rotation advance, latency EWMA sample, circuit-breaker trip/recovery).
+// Routing's post hook runs before governance's (post hooks run in reverse pre-hook
+// order), so the stamp is visible to governance cost calculation and every later
+// post-hook consumer. The strategy-observe step only acts when a routing rule with a
+// non-weighted strategy matched the request; stock-weighted rules are untouched.
 func (p *RoutingPlugin) PostLLMHook(ctx *schemas.BifrostContext, resp *schemas.BifrostResponse, bifrostErr *schemas.BifrostError) (*schemas.BifrostResponse, *schemas.BifrostError, error) {
 	if ctx != nil && resp != nil {
 		if extraFields := resp.GetExtraFields(); extraFields != nil {
 			stampRoutingMetadata(ctx, resp, extraFields.RequestType, bifrost.IsFinalChunk(ctx))
+		}
+	}
+
+	if resp == nil {
+		return resp, bifrostErr, nil
+	}
+	// Only act when a routing rule actually matched this request. The matched
+	// rule ID is stamped onto the context by the engine during evaluation.
+	ruleID, _ := ctx.Value(schemas.BifrostContextKeyGovernanceRoutingRuleID).(string)
+	if ruleID == "" {
+		return resp, bifrostErr, nil
+	}
+	// Determine which built-in provider served the attempt. Core stamps the
+	// resolved base provider type onto the context at serve time.
+	servedProvider := ""
+	if bp, ok := ctx.Value(schemas.BifrostContextKeyBaseProviderType).(schemas.ModelProvider); ok && bp != "" {
+		servedProvider = string(bp)
+	}
+	// Match the observed provider against the configured rules and notify the
+	// active strategy. latency is currently reported as 0; the latency-based
+	// strategy degrades to uniform among cold/untested targets until real
+	// latency shaping is wired to the observe point.
+	for _, r := range p.rules.GetAllRules(ctx) {
+		if r != nil && r.ID == ruleID {
+			rules.NotifyRuleServed(ctx, r, servedProvider, "", 0, bifrostErr == nil)
+			break
 		}
 	}
 	return resp, bifrostErr, nil
