@@ -361,6 +361,7 @@ var configstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"add_open_ai_config_json_column"}, run: migrationAddOpenAIConfigJSONColumn},
 	{IDs: []string{"add_key_blacklisted_models_json_column"}, run: migrationAddKeyBlacklistedModelsJSONColumn},
 	{IDs: []string{"add_chain_rule_column_to_routing_rules"}, run: migrationAddChainRuleColumnToRoutingRules},
+	{IDs: []string{"add_routing_strategy_columns"}, run: migrationAddRoutingStrategyColumns},
 	{IDs: []string{"drop_deployment_columns_and_add_aliases"}, run: migrationDropDeploymentColumnsAndAddAliases},
 	{IDs: []string{"add_replicate_key_config_column"}, run: migrationAddReplicateKeyConfigColumn},
 	{IDs: []string{"add_budget_calendar_aligned_column"}, run: migrationAddBudgetCalendarAlignedColumn},
@@ -7551,6 +7552,55 @@ func migrationAddKeyBlacklistedModelsJSONColumn(ctx context.Context, db *gorm.DB
 	}})
 	if err := m.Migrate(); err != nil {
 		return fmt.Errorf("error running add_key_blacklisted_models_json_column migration: %s", err.Error())
+	}
+	return nil
+}
+
+// migrationAddRoutingStrategyColumns adds the target-selection strategy columns to routing_rules.
+// All four columns are additive and defaulted; existing rules get the stock "weighted" strategy.
+func migrationAddRoutingStrategyColumns(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "add_routing_strategy_columns"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			for _, col := range []string{"strategy", "sticky_limit", "circuit_breaker_threshold", "circuit_breaker_cooldown_seconds"} {
+				if err := addColumnIfNotExists(tx, logger, &tables.TableRoutingRule{}, col); err != nil {
+					return fmt.Errorf("failed to add %s column: %w", col, err)
+				}
+			}
+			// Backfill config_hash so rules created before the strategy columns were
+			// added don't appear changed on the first reload.
+			var rules []tables.TableRoutingRule
+			if err := tx.Find(&rules).Error; err != nil {
+				return fmt.Errorf("failed to load routing rules for hash backfill: %w", err)
+			}
+			logger.Info("[configstore] %s: processing %d rules", migrationName, len(rules))
+			for _, rule := range rules {
+				hash, err := GenerateRoutingRuleHash(rule)
+				if err != nil {
+					return fmt.Errorf("failed to generate config_hash for routing rule %s: %w", rule.ID, err)
+				}
+				if err := tx.Model(&tables.TableRoutingRule{}).Where("id = ?", rule.ID).Update("config_hash", hash).Error; err != nil {
+					return fmt.Errorf("failed to update config_hash for routing rule %s: %w", rule.ID, err)
+				}
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			for _, col := range []string{"strategy", "sticky_limit", "circuit_breaker_threshold", "circuit_breaker_cooldown_seconds"} {
+				if err := dropColumnIfExists(tx, logger, &tables.TableRoutingRule{}, col); err != nil {
+					return fmt.Errorf("failed to drop %s column: %w", col, err)
+				}
+			}
+			return nil
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running add_routing_strategy_columns migration: %s", err.Error())
 	}
 	return nil
 }

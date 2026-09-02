@@ -36,6 +36,21 @@ type TableRoutingRule struct {
 	// Chaining
 	ChainRule bool `gorm:"not null;default:false" json:"chain_rule"` // If true, re-evaluates routing chain after this rule matches
 
+	// Target-selection strategy. Empty/"weighted" = stock upstream weighted-random
+	// selection; other values (sticky-round-robin, latency-based, circuit-breaker)
+	// activate fork target-selection state machines in the routing plugin.
+	Strategy string `gorm:"type:varchar(50);not null;default:'weighted';index" json:"strategy"`
+
+	// StickyLimit caps consecutive *served* requests before sticky-round-robin
+	// rotation advances to the next target. Only meaningful when Strategy=="sticky-round-robin".
+	StickyLimit int `gorm:"not null;default:1" json:"sticky_limit"`
+
+	// CircuitBreakerThreshold is the failure count within CircuitBreakerCooldownSeconds
+	// that opens the breaker for a target (stops routing to it) until the cooldown elapses.
+	// Only meaningful when Strategy=="circuit-breaker".
+	CircuitBreakerThreshold    int `gorm:"not null;default:5" json:"circuit_breaker_threshold"`
+	CircuitBreakerCooldownSeconds int `gorm:"not null;default:60" json:"circuit_breaker_cooldown_seconds"`
+
 	// Execution
 	Priority int `gorm:"type:int;not null;default:0;index" json:"priority"` // Lower = evaluated first within scope
 
