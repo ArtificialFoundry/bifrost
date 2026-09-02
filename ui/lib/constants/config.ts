@@ -68,6 +68,7 @@ export const ModelPlaceholders = {
 	wafer: "e.g. glm-5.2, kimi-k2.6",
 	databricks: "e.g. databricks-claude-sonnet-4-5, system.ai.claude-sonnet-4-5",
 	"github-copilot": "e.g. gpt-5.5, claude-sonnet-4-6",
+	copilot: "e.g. gpt-4o, gpt-4o-mini, claude-sonnet-4",
 	typesafe: "e.g. jev-1.13.0, jev-latest, jev-preview",
 };
 
@@ -104,6 +105,7 @@ export const isKeyRequiredByProvider: Record<ProviderName, boolean> = {
 	wafer: true,
 	databricks: false,
 	"github-copilot": false,
+	copilot: true,
 	typesafe: true,
 };
 

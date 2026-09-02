@@ -76,6 +76,7 @@ const (
 	Wafer         ModelProvider = "wafer"
 	GithubCopilot ModelProvider = "github-copilot"
 	Databricks    ModelProvider = "databricks"
+	Copilot       ModelProvider = "copilot"
 	Typesafe      ModelProvider = "typesafe"
 )
 
@@ -124,6 +125,7 @@ var StandardProviders = []ModelProvider{
 	Wafer,
 	GithubCopilot,
 	Databricks,
+	Copilot,
 	Typesafe,
 }
 
