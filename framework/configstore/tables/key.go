@@ -115,20 +115,27 @@ type TableKey struct {
 	GithubCopilotPrivateKey     *schemas.SecretVar `gorm:"type:text" json:"github_copilot_private_key,omitempty"`
 	GithubCopilotGithubDomain   *schemas.SecretVar `gorm:"type:text" json:"github_copilot_github_domain,omitempty"`
 
+	// GitHub Copilot OAuth device-flow config (distinct from the GitHub App JWT fields
+	// above; see schemas.GithubCopilotOAuthKeyConfig and INC-049). Additive-only column —
+	// existing rows (e.g. legacy Value-based keys) leave this NULL and keep resolving via
+	// core/providers/copilot's Key.Value fallback; nothing here is backfilled.
+	GithubCopilotOAuthAccessToken *schemas.SecretVar `gorm:"column:github_copilot_oauth_access_token;type:text" json:"github_copilot_oauth_access_token,omitempty"`
+
 	// Virtual fields for runtime use (not stored in DB)
-	Models                 schemas.WhiteList               `gorm:"-" json:"models"` // ["*"] allows all models; empty denies all (deny-by-default)
-	BlacklistedModels      schemas.BlackList               `gorm:"-" json:"blacklisted_models"`
-	Aliases                schemas.KeyAliases              `gorm:"-" json:"aliases,omitempty"`
-	AzureKeyConfig         *schemas.AzureKeyConfig         `gorm:"-" json:"azure_key_config,omitempty"`
-	VertexKeyConfig        *schemas.VertexKeyConfig        `gorm:"-" json:"vertex_key_config,omitempty"`
-	BedrockKeyConfig       *schemas.BedrockKeyConfig       `gorm:"-" json:"bedrock_key_config,omitempty"`
-	BedrockMantleKeyConfig *schemas.BedrockMantleKeyConfig `gorm:"-" json:"bedrock_mantle_key_config,omitempty"`
-	VLLMKeyConfig          *schemas.VLLMKeyConfig          `gorm:"-" json:"vllm_key_config,omitempty"`
-	ReplicateKeyConfig     *schemas.ReplicateKeyConfig     `gorm:"-" json:"replicate_key_config,omitempty"`
-	OllamaKeyConfig        *schemas.OllamaKeyConfig        `gorm:"-" json:"ollama_key_config,omitempty"`
-	SGLKeyConfig           *schemas.SGLKeyConfig           `gorm:"-" json:"sgl_key_config,omitempty"`
-	DatabricksKeyConfig    *schemas.DatabricksKeyConfig    `gorm:"-" json:"databricks_key_config,omitempty"`
-	GithubCopilotKeyConfig *schemas.GithubCopilotKeyConfig `gorm:"-" json:"github_copilot_key_config,omitempty"`
+	Models                      schemas.WhiteList                    `gorm:"-" json:"models"` // ["*"] allows all models; empty denies all (deny-by-default)
+	BlacklistedModels           schemas.BlackList                    `gorm:"-" json:"blacklisted_models"`
+	Aliases                     schemas.KeyAliases                   `gorm:"-" json:"aliases,omitempty"`
+	AzureKeyConfig              *schemas.AzureKeyConfig              `gorm:"-" json:"azure_key_config,omitempty"`
+	VertexKeyConfig             *schemas.VertexKeyConfig             `gorm:"-" json:"vertex_key_config,omitempty"`
+	BedrockKeyConfig            *schemas.BedrockKeyConfig            `gorm:"-" json:"bedrock_key_config,omitempty"`
+	BedrockMantleKeyConfig      *schemas.BedrockMantleKeyConfig      `gorm:"-" json:"bedrock_mantle_key_config,omitempty"`
+	VLLMKeyConfig               *schemas.VLLMKeyConfig               `gorm:"-" json:"vllm_key_config,omitempty"`
+	ReplicateKeyConfig          *schemas.ReplicateKeyConfig          `gorm:"-" json:"replicate_key_config,omitempty"`
+	OllamaKeyConfig             *schemas.OllamaKeyConfig             `gorm:"-" json:"ollama_key_config,omitempty"`
+	SGLKeyConfig                *schemas.SGLKeyConfig                `gorm:"-" json:"sgl_key_config,omitempty"`
+	DatabricksKeyConfig         *schemas.DatabricksKeyConfig         `gorm:"-" json:"databricks_key_config,omitempty"`
+	GithubCopilotKeyConfig      *schemas.GithubCopilotKeyConfig      `gorm:"-" json:"github_copilot_key_config,omitempty"`
+	GithubCopilotOAuthKeyConfig *schemas.GithubCopilotOAuthKeyConfig `gorm:"-" json:"github_copilot_oauth_key_config,omitempty"`
 }
 
 // TableName sets the table name for each model
@@ -551,6 +558,19 @@ func (k *TableKey) BeforeSave(tx *gorm.DB) error {
 
 	}
 
+	// GitHub Copilot OAuth device-flow (distinct typed field from the App-JWT config
+	// above). Same value-copy-before-assign invariant applies.
+	if k.GithubCopilotOAuthKeyConfig != nil {
+		if k.GithubCopilotOAuthKeyConfig.AccessToken.IsSet() {
+			v := k.GithubCopilotOAuthKeyConfig.AccessToken
+			k.GithubCopilotOAuthAccessToken = &v
+		} else {
+			k.GithubCopilotOAuthAccessToken = nil
+		}
+	} else {
+		k.GithubCopilotOAuthAccessToken = nil
+	}
+
 	// Store plaintext SecretVar columns into the vault and rewrite them to vault refs.
 	// This must run after the columns are populated (above) and before encryption (below):
 	// encryptSecretVar skips fields that are already vault refs, so vault-owned secrets are
@@ -702,6 +722,9 @@ func (k *TableKey) BeforeSave(tx *gorm.DB) error {
 		if err := encryptSecretVarPtr(&k.GithubCopilotGithubDomain); err != nil {
 			return fmt.Errorf("failed to encrypt github copilot github domain: %w", err)
 		}
+		if err := encryptSecretVarPtr(&k.GithubCopilotOAuthAccessToken); err != nil {
+			return fmt.Errorf("failed to encrypt github copilot oauth access token: %w", err)
+		}
 		k.EncryptionStatus = EncryptionStatusEncrypted
 	}
 	return nil
@@ -849,6 +872,9 @@ func (k *TableKey) AfterFind(tx *gorm.DB) error {
 		}
 		if err := decryptSecretVarPtr(&k.GithubCopilotGithubDomain); err != nil {
 			return fmt.Errorf("failed to decrypt github copilot github domain: %w", err)
+		}
+		if err := decryptSecretVarPtr(&k.GithubCopilotOAuthAccessToken); err != nil {
+			return fmt.Errorf("failed to decrypt github copilot oauth access token: %w", err)
 		}
 	}
 
@@ -1077,6 +1103,14 @@ func (k *TableKey) AfterFind(tx *gorm.DB) error {
 		k.GithubCopilotKeyConfig = config
 	} else {
 		k.GithubCopilotKeyConfig = nil
+	}
+	// Reconstruct GitHub Copilot OAuth config if the field is present
+	if k.GithubCopilotOAuthAccessToken != nil {
+		k.GithubCopilotOAuthKeyConfig = &schemas.GithubCopilotOAuthKeyConfig{
+			AccessToken: *k.GithubCopilotOAuthAccessToken,
+		}
+	} else {
+		k.GithubCopilotOAuthKeyConfig = nil
 	}
 	return nil
 }

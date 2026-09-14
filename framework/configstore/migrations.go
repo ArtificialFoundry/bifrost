@@ -488,6 +488,7 @@ var configstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"add_mcp_oauth_token_status_reason_column"}, run: migrationAddMCPOauthTokenStatusReasonColumn},
 	{IDs: []string{"add_databricks_key_config_columns"}, run: migrationAddDatabricksKeyConfigColumns},
 	{IDs: []string{"add_github_copilot_config_columns"}, run: migrationAddGithubCopilotConfigColumns},
+	{IDs: []string{"add_github_copilot_oauth_key_config_column"}, run: migrationAddGithubCopilotOAuthKeyConfigColumn},
 	{IDs: []string{"add_mcp_client_endpoint_slug"}, run: migrationAddMCPClientEndpointSlug},
 	{IDs: []string{"add_allow_all_providers_to_virtual_key"}, run: migrationAddAllowAllProvidersToVirtualKey},
 	{IDs: []string{"backfill_vk_allow_all_providers_hash"}, run: migrationBackfillVirtualKeyAllowAllProvidersHash},
@@ -13557,6 +13558,43 @@ func migrationAddGithubCopilotConfigColumns(ctx context.Context, db *gorm.DB, lo
 // columns are additive, so an older binary ignores them and there is nothing to undo.
 func rollbackGithubCopilotConfigColumns(*gorm.DB) error {
 	return fmt.Errorf("add_github_copilot_config_columns is non-rollbackable: dropping the github_copilot_* columns would permanently delete every stored GitHub App private key, which GitHub only issues once and cannot re-supply; the columns are additive and older binaries safely ignore them")
+}
+
+// migrationAddGithubCopilotOAuthKeyConfigColumn adds the github_copilot_oauth_access_token
+// column to the key table (WBS 3.0/3.1). This backs schemas.GithubCopilotOAuthKeyConfig,
+// added alongside the OAuth device-flow unification (see core/schemas/account.go). It is
+// additive-only: existing rows (including the live prod "agent47nh" key, which stores its
+// gho_-prefixed OAuth token in the legacy Value column) get NULL here and are left byte-for-
+// byte unchanged. core/providers/copilot's resolveOAuthAccessToken reads this typed column
+// first and falls back to Value when it is unset, so no backfill/data migration is needed
+// or performed by this migration. See projects/iris-bifrost/migration-design.md.
+func migrationAddGithubCopilotOAuthKeyConfigColumn(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "add_github_copilot_oauth_key_config_column"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			return addColumnIfNotExists(tx, logger, &tables.TableKey{}, "github_copilot_oauth_access_token")
+		},
+		Rollback: rollbackGithubCopilotOAuthKeyConfigColumn,
+	}})
+
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+
+// rollbackGithubCopilotOAuthKeyConfigColumn refuses, for the same reason as
+// rollbackGithubCopilotConfigColumns: github_copilot_oauth_access_token can carry a live
+// GitHub OAuth access token once operators start populating it going forward, and GitHub
+// does not let you re-fetch a device-flow token after the fact. The column is additive and
+// older binaries ignore it, so there is nothing that needs undoing.
+func rollbackGithubCopilotOAuthKeyConfigColumn(*gorm.DB) error {
+	return fmt.Errorf("add_github_copilot_oauth_key_config_column is non-rollbackable: dropping github_copilot_oauth_access_token could permanently delete a stored GitHub OAuth access token, which cannot be re-supplied without redoing the device-code flow; the column is additive and older binaries safely ignore it")
 }
 
 // migrationAddHiddenRequestTypesJSONColumn adds the hidden_request_types_json column to
