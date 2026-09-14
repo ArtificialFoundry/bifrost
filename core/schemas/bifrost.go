@@ -76,12 +76,12 @@ const (
 	Wafer         ModelProvider = "wafer"
 	GithubCopilot ModelProvider = "github-copilot"
 	Databricks    ModelProvider = "databricks"
-	// Copilot is the unified provider key for GitHub Copilot access. "copilot" is kept as a
-	// resolution alias (see core/bifrost.go) for backward compatibility with existing prod
-	// rows (e.g. config_providers id=5, provider='copilot') so the alias — not a DB migration —
-	// is what keeps zero-downtime deploy possible. See INC-049.
-	Copilot       ModelProvider = "copilot"
-	Typesafe      ModelProvider = "typesafe"
+	// Copilot is kept as a resolution alias for the unified GithubCopilot provider (see
+	// core/bifrost.go) for backward compatibility with existing prod rows (e.g.
+	// config_providers id=5, provider='copilot') so the alias — not a DB migration — is what
+	// keeps zero-downtime deploy possible. See INC-049.
+	Copilot  ModelProvider = "copilot"
+	Typesafe ModelProvider = "typesafe"
 )
 
 // SupportedBaseProviders is the list of base providers allowed for custom providers.
