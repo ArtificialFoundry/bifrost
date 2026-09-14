@@ -29,6 +29,13 @@ func newCopilotTokenManager(accessToken string, client *fasthttp.Client, logger 
 // ("agent47nh") row, which stores its gho_-prefixed OAuth token in Value and has not yet
 // been migrated (that migration is WBS 3.0, not this function's job). Once the typed
 // config is present, it always wins over Value, so a key can never be resolved two ways.
+//
+// When falling back to Value, detectCredentialKind confirms the string actually looks
+// like a GitHub token this provider's exchange path understands (gho_/ghu_/github_pat_)
+// before treating it as one. A Value with no recognizable prefix is passed through
+// unchanged rather than rejected here — it may be an unusual or future token shape, and
+// the token-exchange call itself is the authoritative check; this function's job is only
+// to prefer the typed field, not to validate the fallback.
 func resolveOAuthAccessToken(key schemas.Key) string {
 	if key.GithubCopilotOAuthKeyConfig != nil {
 		if tok := strings.TrimSpace(key.GithubCopilotOAuthKeyConfig.AccessToken.GetValue()); tok != "" {
