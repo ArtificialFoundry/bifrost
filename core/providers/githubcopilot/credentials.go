@@ -3,6 +3,7 @@ package githubcopilot
 import (
 	"strings"
 
+	"github.com/maximhq/bifrost/core/providers/copilot"
 	schemas "github.com/maximhq/bifrost/core/schemas"
 	"github.com/valyala/fasthttp"
 )
@@ -24,19 +25,26 @@ type copilotCredentials struct {
 
 // resolveCredentials produces the credentials for one request.
 //
-// Two auth modes, checked in this order:
+// Three auth modes, checked in this order (WBS 2.4/2.5 unification — see INC-049 for why
+// this ordering exists and cannot be collapsed to a single Key.Value read):
 //
-//  1. A pre-minted Copilot API token in Key.Value. This is GitHub's documented "direct API
-//     token" method and the token is used verbatim. base_url is required alongside it: a
-//     Copilot token does not carry its own host, paid plans are served from api.individual,
-//     api.business or api.enterprise, and only the token exchange reveals which. Guessing
-//     the public host would surface a Business token as a 401 that reads like a bad
-//     credential, which is why GitHub pairs GITHUB_COPILOT_API_TOKEN with COPILOT_API_URL.
-//     Copilot tokens live about 30 minutes, so this suits testing.
-//  2. GitHub App credentials, from which Bifrost mints its own tokens server-to-server.
-//     base_url is optional here because the exchange reports the host. This is the mode
-//     intended for real deployments: usage bills to the organization and no individual
-//     Copilot seat is involved.
+//  1. A GitHub OAuth device-flow credential (GithubCopilotOAuthKeyConfig.AccessToken, or a
+//     legacy Key.Value carrying a gho_/ghu_/github_pat_-prefixed token — e.g. prod's live
+//     config_providers id=5 "agent47nh" row). Delegated to core/providers/copilot, which
+//     owns the exchange, singleflight coalescing, and negative-cache/backoff for this
+//     mode. Checked first because a recognizable GitHub token prefix is unambiguous.
+//  2. A pre-minted Copilot API token in Key.Value with no recognizable OAuth prefix. This
+//     is GitHub's documented "direct API token" method and the token is used verbatim.
+//     base_url is required alongside it: a Copilot token does not carry its own host, paid
+//     plans are served from api.individual, api.business or api.enterprise, and only the
+//     token exchange reveals which. Guessing the public host would surface a Business
+//     token as a 401 that reads like a bad credential, which is why GitHub pairs
+//     GITHUB_COPILOT_API_TOKEN with COPILOT_API_URL. Copilot tokens live about 30 minutes,
+//     so this suits testing.
+//  3. GitHub App credentials (GithubCopilotKeyConfig), from which Bifrost mints its own
+//     tokens server-to-server. base_url is optional here because the exchange reports the
+//     host. This is the mode intended for real deployments: usage bills to the
+//     organization and no individual Copilot seat is involved.
 //
 // See https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/authenticate
 func resolveCredentials(
@@ -46,6 +54,14 @@ func resolveCredentials(
 	configuredBaseURL string,
 	logger schemas.Logger,
 ) (*copilotCredentials, *schemas.BifrostError) {
+	if copilot.HasOAuthCredential(key) {
+		token, apiBase, bErr := copilot.ResolveOAuthCredentials(key, client, logger)
+		if bErr != nil {
+			return nil, bErr
+		}
+		return &copilotCredentials{Token: token, BaseURL: apiBase}, nil
+	}
+
 	if token := strings.TrimSpace(key.Value.GetValue()); token != "" {
 		baseURL := strings.TrimRight(strings.TrimSpace(configuredBaseURL), "/")
 		if baseURL == "" {
@@ -63,8 +79,9 @@ func resolveCredentials(
 
 	if key.GithubCopilotKeyConfig == nil {
 		return nil, configurationError(
-			"github copilot: no credentials on this key. Set either value (a Copilot API token) " +
-				"or github_copilot_key_config (GitHub App credentials).",
+			"github copilot: no credentials on this key. Set github_copilot_oauth_key_config " +
+				"(OAuth device-flow), value (a Copilot API token), or github_copilot_key_config " +
+				"(GitHub App credentials).",
 		)
 	}
 

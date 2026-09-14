@@ -151,6 +151,7 @@ type Key struct {
 	DatabricksKeyConfig         *DatabricksKeyConfig         `json:"databricks_key_config,omitempty"`           // Databricks-specific key configuration
 	GithubCopilotKeyConfig      *GithubCopilotKeyConfig      `json:"github_copilot_key_config,omitempty"`       // GitHub Copilot GitHub-App server-to-server key configuration
 	GithubCopilotOAuthKeyConfig *GithubCopilotOAuthKeyConfig `json:"github_copilot_oauth_key_config,omitempty"` // GitHub Copilot OAuth-device-flow key configuration (personal-seat auth, distinct from GithubCopilotKeyConfig's GitHub App server-to-server auth)
+	GithubCopilotKeyConfig      *GithubCopilotKeyConfig      `json:"github_copilot_key_config,omitempty"`       // GitHub Copilot GitHub-App server-to-server key configuration
 	Enabled                     *bool                        `json:"enabled,omitempty"`                         // Whether the key is active (default:true)
 	UseForBatchAPI              *bool                        `json:"use_for_batch_api,omitempty"`               // Whether this key can be used for batch API operations (default:false for new keys, migrated keys default to true)
 	UseAnthropicEndpoints       *bool                        `json:"use_anthropic_endpoints,omitempty"`         // Whether to use anthropic endpoints for this key
@@ -934,20 +935,44 @@ type GithubCopilotKeyConfig struct {
 // GithubCopilotOAuthKeyConfig holds a GitHub OAuth device-code-flow credential for
 // personal-seat Copilot access.
 //
-// This is a distinct auth mode from GithubCopilotKeyConfig above. Where
-// GithubCopilotKeyConfig's Value-equivalent is an already-valid, pre-minted Copilot API
-// bearer token requiring an explicit base_url, this config's AccessToken is a long-lived
-// GitHub OAuth access token (obtained via the device-code flow against
-// github.com/login/device/code, client_id Iv1.b507a08c87ecfe98, scope read:user) that must
-// still be exchanged, on every refresh, for a short-lived Copilot JWT via
-// /copilot_internal/v2/token. The API base URL is discovered dynamically from that
-// exchange response and is not user-configured.
+// This is a distinct auth mode from GithubCopilotKeyConfig, which holds GitHub App
+// server-to-server credentials (ported from upstream transports/v2.1.1 as part of the
+// provider-unification merge, WBS 2.4). Where GithubCopilotKeyConfig's Value-equivalent is
+// an already-valid, pre-minted Copilot API bearer token requiring an explicit base_url,
+// this config's AccessToken is a long-lived GitHub OAuth access token (obtained via the
+// device-code flow against github.com/login/device/code, client_id
+// Iv1.b507a08c87ecfe98, scope read:user) that must still be exchanged, on every refresh,
+// for a short-lived Copilot JWT via /copilot_internal/v2/token. The API base URL is
+// discovered dynamically from that exchange response and is not user-configured.
 //
 // Storing this as a typed field (rather than overloading Key.Value, as this provider did
 // before the unification) keeps the two Copilot auth modes' semantics from colliding once
 // both are resolved by the same credential-resolution code path. See INC-049.
 type GithubCopilotOAuthKeyConfig struct {
 	AccessToken SecretVar `json:"access_token"` // Long-lived GitHub OAuth access token from the device-code flow (required); exchanged per-refresh for a short-lived Copilot JWT, never used verbatim as a bearer token
+}
+
+// GithubCopilotKeyConfig holds GitHub App credentials for server-to-server Copilot access.
+//
+// A GitHub App carrying the "Copilot Requests" permission mints short-lived installation
+// tokens, and Copilot usage is billed to the account that owns the installation. No
+// individual Copilot seat is involved, which is what makes this the correct auth mode for
+// a shared gateway.
+//
+// The organization must also have the "Allow use of Copilot CLI billed to the
+// organization" policy enabled, and the installation needs All repositories access.
+//
+// Ported from upstream transports/v2.1.1 as part of the Copilot provider-unification
+// merge (WBS 2.4). Distinct from GithubCopilotOAuthKeyConfig — see that type's doc comment
+// and INC-049 for why these are two separate typed configs rather than one shared field.
+//
+// See https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/server-to-server-tokens
+type GithubCopilotKeyConfig struct {
+	AppID          SecretVar `json:"app_id"`                  // GitHub App ID or Client ID; the App JWT issuer (required)
+	InstallationID SecretVar `json:"installation_id"`         // Installation to mint tokens for; digits only (required)
+	RepositoryID   SecretVar `json:"repository_id"`           // Repository the installation token is scoped to; digits only (required)
+	PrivateKey     SecretVar `json:"private_key"`             // GitHub App private key, PKCS#1 or PKCS#8 PEM (required)
+	GithubDomain   SecretVar `json:"github_domain,omitempty"` // GitHub Enterprise domain, e.g. "acme.ghe.com". Empty means github.com.
 }
 
 // Account defines the interface for managing provider accounts and their configurations.
