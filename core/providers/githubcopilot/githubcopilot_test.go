@@ -129,6 +129,31 @@ func TestResolveCredentials(t *testing.T) {
 	})
 }
 
+// TestResolveCredentialsRoutesTypedOAuthConfigAwayFromBareTokenMode pins the routing
+// decision in resolveCredentials's mode-1-vs-mode-2 branch (WBS 2.4/2.5): a key carrying
+// GithubCopilotOAuthKeyConfig must never fall through to mode 2's "bare token, base_url
+// required" error, even though it never reaches a real GitHub exchange in this test
+// (resolveCredentials/ResolveOAuthCredentials have no URL-injection seam, so a real
+// network round trip cannot be driven from this package's unit tests -- see this
+// package's test report for that gap). This only proves copilot.HasOAuthCredential's
+// predicate fires ahead of the bare-token branch, not that the exchange itself succeeds;
+// that half is covered by core/providers/copilot's own httptest-backed suite (5.1/5.2).
+func TestResolveCredentialsRoutesTypedOAuthConfigAwayFromBareTokenMode(t *testing.T) {
+	key := schemas.Key{
+		GithubCopilotOAuthKeyConfig: &schemas.GithubCopilotOAuthKeyConfig{
+			AccessToken: *schemas.NewSecretVar("gho_devicecodetoken"),
+		},
+	}
+
+	_, bErr := resolveCredentials(nil, key, &fasthttp.Client{}, "", nil)
+
+	require.NotNil(t, bErr, "the real GitHub exchange must fail in a network-sandboxed test run")
+	assert.NotContains(t, bErr.Error.Message, "base_url",
+		"an OAuth-configured key must never fall into mode 2's base_url-required bare-token error")
+	assert.NotContains(t, bErr.Error.Message, "no credentials on this key",
+		"an OAuth-configured key must never be treated as having no credentials")
+}
+
 // TestConfigurationErrorsBlockFallbacks pins that a Copilot setup fault never drains onto
 // another provider. BifrostError.AllowFallbacks is nil-means-allowed, so a configuration
 // error built without setting it explicitly is treated as retryable: a key with no

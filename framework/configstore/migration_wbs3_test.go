@@ -142,3 +142,66 @@ func TestMigrationAddGithubCopilotOAuthKeyConfigColumn_LiveRowUnchanged(t *testi
 	require.NoError(t, db.Raw("SELECT github_copilot_oauth_access_token FROM config_keys WHERE key_id = ?", key.KeyID).Scan(&rawValue).Error)
 	assert.Nil(t, rawValue, "the new column must be NULL for the pre-existing row -- no data migration/backfill performed")
 }
+
+// TestMigrationAddGithubCopilotOAuthKeyConfigColumn_ResolvesViaSchemaKey is WBS 5.3's
+// migration-safety test: it seeds a row shaped like a NEW key created after this
+// migration (i.e. actually populating the new typed column, not the legacy Value
+// fallback covered by _LiveRowUnchanged above), applies the migration, and exercises the
+// real DB-row -> schemas.Key conversion path (schemaKeyFromTableKey) that
+// core/providers/githubcopilot.resolveCredentials / core/providers/copilot actually
+// consume at request time -- not just "the row exists in the table."
+func TestMigrationAddGithubCopilotOAuthKeyConfigColumn_ResolvesViaSchemaKey(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.AutoMigrate(&tables.TableProvider{}, &tables.TableKey{}))
+	require.NoError(t, db.Migrator().DropColumn(&tables.TableKey{}, "github_copilot_oauth_access_token"))
+	require.NoError(t, migrationAddGithubCopilotOAuthKeyConfigColumn(ctx, db, testMigrationLogger))
+
+	provider := &tables.TableProvider{Name: "copilot-oauth-new"}
+	require.NoError(t, db.Create(provider).Error)
+
+	seed := &tables.TableKey{
+		Name:       "copilot-oauth-new-key",
+		ProviderID: provider.ID,
+		Provider:   "copilot",
+		KeyID:      "copilot-oauth-new-key-1",
+		Enabled:    boolPtr(true),
+		GithubCopilotOAuthKeyConfig: &schemas.GithubCopilotOAuthKeyConfig{
+			AccessToken: *schemas.NewSecretVar("gho_newlyCreatedPostMigrationToken"),
+		},
+	}
+	require.NoError(t, db.Create(seed).Error)
+
+	// Re-fetch through the real GORM round trip (AfterFind reconstructs
+	// GithubCopilotOAuthKeyConfig from the new column, exactly as production does).
+	var dbKey tables.TableKey
+	require.NoError(t, db.Where("key_id = ?", seed.KeyID).First(&dbKey).Error)
+	require.NotNil(t, dbKey.GithubCopilotOAuthKeyConfig,
+		"AfterFind must reconstruct the typed OAuth config from the new column")
+	assert.Equal(t, "gho_newlyCreatedPostMigrationToken", dbKey.GithubCopilotOAuthKeyConfig.AccessToken.GetValue())
+
+	// This is the exact conversion function every configstore read path (GetProviderKey,
+	// GetProviderKeys, etc.) calls before handing a schemas.Key to the provider layer.
+	schemaKey := schemaKeyFromTableKey(dbKey)
+
+	// BUG: schemaKeyFromTableKey does not map GithubCopilotOAuthKeyConfig from the
+	// DB-reconstructed tables.TableKey onto the returned schemas.Key at all (confirmed by
+	// reading configstore/rdb.go:146-171 -- every other *KeyConfig field for other
+	// providers, e.g. AzureKeyConfig/VertexKeyConfig/GithubCopilotKeyConfig, is copied
+	// across, but GithubCopilotOAuthKeyConfig is missing from that struct literal).
+	// core/providers/githubcopilot.resolveCredentials only ever sees the schemas.Key this
+	// function returns, so for a NEW key created after this migration that only populates
+	// the typed OAuth column (no legacy Value), that credential is currently unreachable
+	// at request time even though the DB row is correct end-to-end. This assertion
+	// currently FAILS and documents the gap; it must not be "fixed" here per this task's
+	// STOP CONDITION -- report to subagent-2/subagent-1 (configstore/rdb.go owner) instead.
+	assert.NotNil(t, schemaKey.GithubCopilotOAuthKeyConfig,
+		"BUG (report, do not patch here): schemaKeyFromTableKey (configstore/rdb.go) omits "+
+			"GithubCopilotOAuthKeyConfig, so a key created after this migration using only the "+
+			"new typed OAuth column resolves to schemas.Key{} with that field nil -- "+
+			"copilot.HasOAuthCredential(schemaKey) will be false and the request falls through "+
+			"to the bare-token/no-credentials error path instead of exchanging the OAuth token")
+}
+
+func boolPtr(b bool) *bool { return &b }
