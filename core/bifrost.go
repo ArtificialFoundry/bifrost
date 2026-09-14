@@ -27,7 +27,6 @@ import (
 	"github.com/maximhq/bifrost/core/providers/cerebras"
 	"github.com/maximhq/bifrost/core/providers/cohere"
 	"github.com/maximhq/bifrost/core/providers/databricks"
-	"github.com/maximhq/bifrost/core/providers/copilot"
 	"github.com/maximhq/bifrost/core/providers/deepseek"
 	"github.com/maximhq/bifrost/core/providers/elevenlabs"
 	"github.com/maximhq/bifrost/core/providers/fireworks"
@@ -4601,8 +4600,6 @@ func (bifrost *Bifrost) createBaseProvider(providerKey schemas.ModelProvider, co
 		return opencode.NewOpencodeGoProvider(config, bifrost.logger)
 	case schemas.OpencodeZen:
 		return opencode.NewOpencodeZenProvider(config, bifrost.logger)
-	case schemas.GithubCopilot:
-		return githubcopilot.NewGithubCopilotProvider(config, bifrost.logger)
 	case schemas.SGL:
 		return sgl.NewSGLProvider(config, bifrost.logger)
 	case schemas.Parasail:
@@ -4643,8 +4640,14 @@ func (bifrost *Bifrost) createBaseProvider(providerKey schemas.ModelProvider, co
 		return databricks.NewDatabricksProvider(config, bifrost.logger)
 	case schemas.Typesafe:
 		return typesafe.NewTypesafeProvider(config, bifrost.logger)
-	case schemas.Copilot:
-		return copilot.NewCopilotProvider(config, bifrost.logger)
+	case schemas.Copilot, schemas.GithubCopilot:
+		// "copilot" is kept as a resolution alias for "github-copilot" so prod's existing
+		// config_providers rows (provider='copilot', e.g. id=5 "agent47nh") keep working
+		// without a DB migration renaming that column value — the alias is what makes a
+		// zero-downtime deploy of the unified provider possible. subagent-2's migration
+		// (WBS 3.0) may still rename it later, but this code does not require that first.
+		// See INC-049.
+		return githubcopilot.NewGithubCopilotProvider(config, bifrost.logger)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", targetProviderKey)
 	}
