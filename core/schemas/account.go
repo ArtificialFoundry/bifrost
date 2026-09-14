@@ -133,30 +133,31 @@ func (bl BlackList) Validate() error {
 // Key represents an API key and its associated configuration for a provider.
 // It contains the key value, supported models, and a weight for load balancing.
 type Key struct {
-	ID                     string                  `json:"id"`                                  // The unique identifier for the key (used by bifrost to identify the key)
-	Name                   string                  `json:"name"`                                // The name of the key (used by users to identify the key, not used by bifrost)
-	Value                  SecretVar               `json:"value"`                               // The actual API key value
-	Models                 WhiteList               `json:"models"`                              // List of models this key can access
-	BlacklistedModels      BlackList               `json:"blacklisted_models"`                  // List of models this key cannot access
-	Weight                 float64                 `json:"weight"`                              // Weight for load balancing between multiple keys
-	Aliases                KeyAliases              `json:"aliases,omitempty"`                   // Mapping of model identifiers to inference profiles
-	AzureKeyConfig         *AzureKeyConfig         `json:"azure_key_config,omitempty"`          // Azure-specific key configuration
-	VertexKeyConfig        *VertexKeyConfig        `json:"vertex_key_config,omitempty"`         // Vertex-specific key configuration
-	BedrockKeyConfig       *BedrockKeyConfig       `json:"bedrock_key_config,omitempty"`        // AWS Bedrock-specific key configuration
-	BedrockMantleKeyConfig *BedrockMantleKeyConfig `json:"bedrock_mantle_key_config,omitempty"` // Bedrock Mantle-specific key configuration
-	VLLMKeyConfig          *VLLMKeyConfig          `json:"vllm_key_config,omitempty"`           // vLLM-specific key configuration
-	ReplicateKeyConfig     *ReplicateKeyConfig     `json:"replicate_key_config,omitempty"`      // Replicate-specific key configuration
-	OllamaKeyConfig        *OllamaKeyConfig        `json:"ollama_key_config,omitempty"`         // Ollama-specific key configuration
-	SGLKeyConfig           *SGLKeyConfig           `json:"sgl_key_config,omitempty"`            // SGLang-specific key configuration
-	DatabricksKeyConfig    *DatabricksKeyConfig    `json:"databricks_key_config,omitempty"`     // Databricks-specific key configuration
-	GithubCopilotKeyConfig *GithubCopilotKeyConfig `json:"github_copilot_key_config,omitempty"` // GitHub Copilot-specific key configuration
-	Enabled                *bool                   `json:"enabled,omitempty"`                   // Whether the key is active (default:true)
-	UseForBatchAPI         *bool                   `json:"use_for_batch_api,omitempty"`         // Whether this key can be used for batch API operations (default:false for new keys, migrated keys default to true)
-	UseAnthropicEndpoints  *bool                   `json:"use_anthropic_endpoints,omitempty"`   // Whether to use anthropic endpoints for this key
-	UseOpenAIEndpoints     *bool                   `json:"use_openai_endpoints,omitempty"`      // Whether to use OpenAI-compatible endpoints for this key
-	ConfigHash             string                  `json:"config_hash,omitempty"`               // Hash of config.json version, used for change detection
-	Status                 KeyStatusType           `json:"status,omitempty"`                    // Status of key
-	Description            string                  `json:"description,omitempty"`               // Description of key
+	ID                          string                       `json:"id"`                                        // The unique identifier for the key (used by bifrost to identify the key)
+	Name                        string                       `json:"name"`                                      // The name of the key (used by users to identify the key, not used by bifrost)
+	Value                       SecretVar                    `json:"value"`                                     // The actual API key value
+	Models                      WhiteList                    `json:"models"`                                    // List of models this key can access
+	BlacklistedModels           BlackList                    `json:"blacklisted_models"`                        // List of models this key cannot access
+	Weight                      float64                      `json:"weight"`                                    // Weight for load balancing between multiple keys
+	Aliases                     KeyAliases                   `json:"aliases,omitempty"`                         // Mapping of model identifiers to inference profiles
+	AzureKeyConfig              *AzureKeyConfig              `json:"azure_key_config,omitempty"`                // Azure-specific key configuration
+	VertexKeyConfig             *VertexKeyConfig             `json:"vertex_key_config,omitempty"`               // Vertex-specific key configuration
+	BedrockKeyConfig            *BedrockKeyConfig            `json:"bedrock_key_config,omitempty"`              // AWS Bedrock-specific key configuration
+	BedrockMantleKeyConfig      *BedrockMantleKeyConfig      `json:"bedrock_mantle_key_config,omitempty"`       // Bedrock Mantle-specific key configuration
+	VLLMKeyConfig               *VLLMKeyConfig               `json:"vllm_key_config,omitempty"`                 // vLLM-specific key configuration
+	ReplicateKeyConfig          *ReplicateKeyConfig          `json:"replicate_key_config,omitempty"`            // Replicate-specific key configuration
+	OllamaKeyConfig             *OllamaKeyConfig             `json:"ollama_key_config,omitempty"`               // Ollama-specific key configuration
+	SGLKeyConfig                *SGLKeyConfig                `json:"sgl_key_config,omitempty"`                  // SGLang-specific key configuration
+	DatabricksKeyConfig         *DatabricksKeyConfig         `json:"databricks_key_config,omitempty"`           // Databricks-specific key configuration
+	GithubCopilotKeyConfig      *GithubCopilotKeyConfig      `json:"github_copilot_key_config,omitempty"`       // GitHub Copilot GitHub-App server-to-server key configuration
+	GithubCopilotOAuthKeyConfig *GithubCopilotOAuthKeyConfig `json:"github_copilot_oauth_key_config,omitempty"` // GitHub Copilot OAuth-device-flow key configuration (personal-seat auth, distinct from GithubCopilotKeyConfig's GitHub App server-to-server auth)
+	Enabled                     *bool                        `json:"enabled,omitempty"`                         // Whether the key is active (default:true)
+	UseForBatchAPI              *bool                        `json:"use_for_batch_api,omitempty"`               // Whether this key can be used for batch API operations (default:false for new keys, migrated keys default to true)
+	UseAnthropicEndpoints       *bool                        `json:"use_anthropic_endpoints,omitempty"`         // Whether to use anthropic endpoints for this key
+	UseOpenAIEndpoints          *bool                        `json:"use_openai_endpoints,omitempty"`            // Whether to use OpenAI-compatible endpoints for this key
+	ConfigHash                  string                       `json:"config_hash,omitempty"`                     // Hash of config.json version, used for change detection
+	Status                      KeyStatusType                `json:"status,omitempty"`                          // Status of key
+	Description                 string                       `json:"description,omitempty"`                     // Description of key
 }
 
 // ModelFamily is a typed enum identifying the underlying model family of an alias target.
@@ -928,6 +929,25 @@ type GithubCopilotKeyConfig struct {
 	RepositoryID   SecretVar `json:"repository_id"`           // Repository the installation token is scoped to; digits only (required)
 	PrivateKey     SecretVar `json:"private_key"`             // GitHub App private key, PKCS#1 or PKCS#8 PEM (required)
 	GithubDomain   SecretVar `json:"github_domain,omitempty"` // GitHub Enterprise domain, e.g. "acme.ghe.com". Empty means github.com.
+}
+
+// GithubCopilotOAuthKeyConfig holds a GitHub OAuth device-code-flow credential for
+// personal-seat Copilot access.
+//
+// This is a distinct auth mode from GithubCopilotKeyConfig above. Where
+// GithubCopilotKeyConfig's Value-equivalent is an already-valid, pre-minted Copilot API
+// bearer token requiring an explicit base_url, this config's AccessToken is a long-lived
+// GitHub OAuth access token (obtained via the device-code flow against
+// github.com/login/device/code, client_id Iv1.b507a08c87ecfe98, scope read:user) that must
+// still be exchanged, on every refresh, for a short-lived Copilot JWT via
+// /copilot_internal/v2/token. The API base URL is discovered dynamically from that
+// exchange response and is not user-configured.
+//
+// Storing this as a typed field (rather than overloading Key.Value, as this provider did
+// before the unification) keeps the two Copilot auth modes' semantics from colliding once
+// both are resolved by the same credential-resolution code path. See INC-049.
+type GithubCopilotOAuthKeyConfig struct {
+	AccessToken SecretVar `json:"access_token"` // Long-lived GitHub OAuth access token from the device-code flow (required); exchanged per-refresh for a short-lived Copilot JWT, never used verbatim as a bearer token
 }
 
 // Account defines the interface for managing provider accounts and their configurations.

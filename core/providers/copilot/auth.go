@@ -2,6 +2,7 @@ package copilot
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -18,6 +19,23 @@ func newCopilotTokenManager(accessToken string, client *fasthttp.Client, logger 
 		apiBase:          defaultAPIBaseURL,
 		tokenExchangeURL: defaultTokenExchangeURL,
 	}
+}
+
+// resolveOAuthAccessToken returns the GitHub OAuth device-flow access token for a key.
+//
+// GithubCopilotOAuthKeyConfig.AccessToken is the typed, unambiguous source (see
+// core/schemas/account.go and INC-049). Key.Value is read only as a legacy fallback for
+// keys persisted before the typed split landed — e.g. prod's live config_providers id=5
+// ("agent47nh") row, which stores its gho_-prefixed OAuth token in Value and has not yet
+// been migrated (that migration is WBS 3.0, not this function's job). Once the typed
+// config is present, it always wins over Value, so a key can never be resolved two ways.
+func resolveOAuthAccessToken(key schemas.Key) string {
+	if key.GithubCopilotOAuthKeyConfig != nil {
+		if tok := strings.TrimSpace(key.GithubCopilotOAuthKeyConfig.AccessToken.GetValue()); tok != "" {
+			return tok
+		}
+	}
+	return key.Value.GetValue()
 }
 
 func intPtr(i int) *int { return &i }

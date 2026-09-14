@@ -101,8 +101,14 @@ type CopilotTokenManagerEntry struct {
 // duplicate token managers (and triggering parallel token exchanges).
 // If the key's OAuth token has changed since the last call (rotation or re-auth), the old manager
 // is replaced so that revoked credentials are not reused.
+//
+// currentToken is resolved from GithubCopilotOAuthKeyConfig.AccessToken when present
+// (the typed, unambiguous source), falling back to the legacy Key.Value for keys stored
+// before the typed split. Never read Key.Value.GetValue() elsewhere in this package —
+// its meaning is provider-specific and collides with upstream's GithubCopilotKeyConfig
+// (pre-minted bearer token) once both auth modes share one ModelProvider. See INC-049.
 func (provider *CopilotProvider) getOrCreateTokenManager(key schemas.Key) *copilotTokenManager {
-	currentToken := key.Value.GetValue()
+	currentToken := resolveOAuthAccessToken(key)
 	if val, ok := provider.tokenManagers.Load(key.ID); ok {
 		entry := val.(*CopilotTokenManagerEntry)
 		if entry.accessToken == currentToken {
