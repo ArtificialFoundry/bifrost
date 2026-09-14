@@ -336,6 +336,12 @@ export const githubCopilotKeyConfigSchema = z
 		}
 	});
 
+// GitHub Copilot OAuth key config schema (INC-049 typed field). Only present when a saved
+// key already carries it; the manual/device-login form paths still write to key.value.
+export const githubCopilotOAuthKeyConfigSchema = z.object({
+	access_token: secretVarSchema.optional(),
+});
+
 // Ollama key config schema
 export const ollamaKeyConfigSchema = z
 	.object({
@@ -469,6 +475,7 @@ export const modelProviderKeySchema = z
 		sgl_key_config: sglKeyConfigSchema.optional(),
 		databricks_key_config: databricksKeyConfigSchema.optional(),
 		github_copilot_key_config: githubCopilotKeyConfigSchema.optional(),
+		github_copilot_oauth_key_config: githubCopilotOAuthKeyConfigSchema.optional(),
 		use_for_batch_api: z.boolean().optional(),
 		use_anthropic_endpoints: z.boolean().optional(),
 		use_openai_endpoints: z.boolean().optional(),

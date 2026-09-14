@@ -614,3 +614,31 @@ export function hasCopilotApiToken(value: string | { value?: string; ref?: strin
 	if (typeof value === "string") return value.trim() !== "";
 	return !!value.value?.trim() || !!value.ref?.trim();
 }
+
+// GitHub token prefixes this provider's OAuth exchange path accepts. Mirrors Go's
+// core/providers/copilot/credentials.go detectCredentialKind exactly (WBS 2.2, commit
+// 26837b429) — do not add or remove prefixes here without updating that function too.
+// TODO(copilot-unify): duplicated across Go and TS because there is no shared surface
+// between core/ and ui/ for this constant list; flagged as a follow-up unification item.
+export type CredentialKind = "oauth_user_token" | "github_app_user_token" | "fine_grained_pat" | "unknown";
+
+/**
+ * detectCredentialKind classifies a raw GitHub token string by its prefix, exactly as Go's
+ * detectCredentialKind does: gho_ (OAuth App user token, this provider's device-code flow),
+ * ghu_ (GitHub App user-to-server token), github_pat_ (fine-grained PAT). Anything else
+ * (including a pre-minted Copilot API token, which carries no GitHub prefix) is "unknown" —
+ * callers must not guess a mode for it.
+ */
+export function detectCredentialKind(token: string | null | undefined): CredentialKind {
+	const t = token ?? "";
+	if (t.startsWith("gho_")) return "oauth_user_token";
+	if (t.startsWith("ghu_")) return "github_app_user_token";
+	if (t.startsWith("github_pat_")) return "fine_grained_pat";
+	return "unknown";
+}
+
+/** Mirrors Go's isOAuthExchangeCredential: true for every kind the device-flow token-exchange endpoint accepts. */
+export function isOAuthExchangeCredential(kind: CredentialKind): boolean {
+	return kind === "oauth_user_token" || kind === "github_app_user_token" || kind === "fine_grained_pat";
+}
+

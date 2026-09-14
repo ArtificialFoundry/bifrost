@@ -262,6 +262,21 @@ export const DefaultGithubCopilotKeyConfig: GithubCopilotKeyConfig = {
 	github_domain: { value: "", ref: "" },
 } as const satisfies Required<GithubCopilotKeyConfig>;
 
+// GithubCopilotOAuthKeyConfig matching Go's schemas.GithubCopilotOAuthKeyConfig (INC-049,
+// core/schemas/account.go). Typed home for the GitHub OAuth device-code-flow access token,
+// distinct from GithubCopilotKeyConfig's GitHub App server-to-server credentials. The form
+// still writes the token to key.value today (see CopilotDeviceLoginSection) — this type
+// exists so the UI layer can recognize/round-trip the typed field once a saved key carries
+// it, without guessing at Value's meaning.
+export interface GithubCopilotOAuthKeyConfig {
+	access_token: SecretVar;
+}
+
+// Default GithubCopilotOAuthKeyConfig
+export const DefaultGithubCopilotOAuthKeyConfig: GithubCopilotOAuthKeyConfig = {
+	access_token: { value: "", ref: "" },
+} as const satisfies Required<GithubCopilotOAuthKeyConfig>;
+
 // Key structure matching Go's schemas.Key
 export interface ModelProviderKey {
 	id: string;
@@ -285,6 +300,7 @@ export interface ModelProviderKey {
 	sgl_key_config?: SGLKeyConfig;
 	databricks_key_config?: DatabricksKeyConfig;
 	github_copilot_key_config?: GithubCopilotKeyConfig;
+	github_copilot_oauth_key_config?: GithubCopilotOAuthKeyConfig;
 	config_hash?: string; // Present when config is synced from config.json
 	status?: "unknown" | "success" | "list_models_failed";
 	description?: string;
