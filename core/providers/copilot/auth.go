@@ -47,6 +47,53 @@ func resolveOAuthAccessToken(key schemas.Key) string {
 
 func intPtr(i int) *int { return &i }
 
+// Backoff for the negative cache. Ported from upstream's
+// core/providers/githubcopilot/token.go (permanentBackoffBase/Cap,
+// transientBackoffBase/Cap). Permanent faults (401/403 — token revoked or invalid) are
+// credential problems and retrying quickly cannot fix them; transient faults (5xx,
+// timeouts, malformed JSON) deserve a shorter pause since they may already have cleared.
+// See INC-049 §7: before this, every request past expiry re-entered refreshToken() with
+// no floor, which is an unbounded retry storm against GitHub on a persistently-failing
+// non-401 error.
+const (
+	permanentBackoffBase = 2 * time.Second
+	permanentBackoffCap  = 60 * time.Second
+	transientBackoffBase = 500 * time.Millisecond
+	transientBackoffCap  = 10 * time.Second
+)
+
+// backoffFor grows the retry delay geometrically per consecutive failure and clamps it.
+func backoffFor(attempts int, permanent bool) time.Duration {
+	base, cap := transientBackoffBase, transientBackoffCap
+	if permanent {
+		base, cap = permanentBackoffBase, permanentBackoffCap
+	}
+	delay := base
+	for i := 1; i < attempts && delay < cap; i++ {
+		delay *= 2
+	}
+	if delay > cap {
+		delay = cap
+	}
+	return delay
+}
+
+// recordFailure caches an error so repeated requests past expiry do not hammer GitHub's
+// token-exchange endpoint. Must be called with tm.mu held.
+func (tm *copilotTokenManager) recordFailure(bErr *schemas.BifrostError, permanent bool) {
+	tm.failureAttempts++
+	tm.failureErr = bErr
+	tm.failureRetryAfter = time.Now().Add(backoffFor(tm.failureAttempts, permanent))
+}
+
+// clearFailure resets the negative cache after a successful refresh. Must be called with
+// tm.mu held.
+func (tm *copilotTokenManager) clearFailure() {
+	tm.failureErr = nil
+	tm.failureAttempts = 0
+	tm.failureRetryAfter = time.Time{}
+}
+
 // getToken returns a valid Copilot JWT and the API base URL.
 // It refreshes the token if expired or about to expire.
 // Concurrent callers share a single in-flight refresh via singleflight.
@@ -57,6 +104,13 @@ func (tm *copilotTokenManager) getToken() (token string, apiBase string, bifrost
 		t, b := tm.apiToken, tm.apiBase
 		tm.mu.RUnlock()
 		return t, b, nil
+	}
+	// Negative-cache fast path: a cached failure that hasn't aged out yet short-circuits
+	// without entering singleflight or issuing an HTTP request at all.
+	if tm.failureErr != nil && time.Now().Before(tm.failureRetryAfter) {
+		err := tm.failureErr
+		tm.mu.RUnlock()
+		return "", "", err
 	}
 	tm.mu.RUnlock()
 
@@ -118,13 +172,18 @@ func (tm *copilotTokenManager) refreshToken() *tokenResult {
 			}
 			return &tokenResult{token: t, apiBase: b}
 		}
-		return &tokenResult{err: &schemas.BifrostError{
+		bErr := &schemas.BifrostError{
 			IsBifrostError: true,
 			StatusCode:     intPtr(500),
 			Error: &schemas.ErrorField{
 				Message: fmt.Sprintf("copilot token exchange request failed: %s", err.Error()),
 			},
-		}}
+		}
+		// Transport failure (network error, timeout): transient, not a credential problem.
+		tm.mu.Lock()
+		tm.recordFailure(bErr, false)
+		tm.mu.Unlock()
+		return &tokenResult{err: bErr}
 	}
 
 	if resp.StatusCode() != 200 {
@@ -138,30 +197,36 @@ func (tm *copilotTokenManager) refreshToken() *tokenResult {
 				"status", sc)
 		}
 
+		// 401/403 are definitive credential faults (permanent backoff, no point retrying
+		// fast); everything else (429, 5xx, unexpected status) is transient.
+		permanent := sc == 401 || sc == 403
+
 		tm.mu.Lock()
 		// Only clear cached JWT on definitive auth failures (401/403).
-		if sc == 401 || sc == 403 {
+		if permanent {
 			tm.apiToken = ""
 		} else if tm.apiToken != "" && time.Now().Before(tm.expiresAt) {
 			t, b := tm.apiToken, tm.apiBase
 			tm.mu.Unlock()
 			return &tokenResult{token: t, apiBase: b}
 		}
-		tm.mu.Unlock()
 
 		var allowFallbacks *bool
-		if sc == 401 || sc == 403 {
+		if permanent {
 			noFallback := false
 			allowFallbacks = &noFallback
 		}
-		return &tokenResult{err: &schemas.BifrostError{
+		bErr := &schemas.BifrostError{
 			IsBifrostError: true,
 			StatusCode:     &sc,
 			AllowFallbacks: allowFallbacks,
 			Error: &schemas.ErrorField{
 				Message: fmt.Sprintf("copilot token exchange returned %d: %s", sc, string(body)),
 			},
-		}}
+		}
+		tm.recordFailure(bErr, permanent)
+		tm.mu.Unlock()
+		return &tokenResult{err: bErr}
 	}
 
 	var tokenResp CopilotTokenResponse
@@ -177,25 +242,37 @@ func (tm *copilotTokenManager) refreshToken() *tokenResult {
 			}
 			return &tokenResult{token: t, apiBase: b}
 		}
-		return &tokenResult{err: &schemas.BifrostError{
+		bErr := &schemas.BifrostError{
 			IsBifrostError: true,
 			StatusCode:     intPtr(500),
 			Error: &schemas.ErrorField{
 				Message: fmt.Sprintf("failed to parse copilot token response: %s", err.Error()),
 			},
-		}}
+		}
+		// Malformed response from GitHub: transient (a GitHub-side glitch, not proof the
+		// credential itself is bad).
+		tm.mu.Lock()
+		tm.recordFailure(bErr, false)
+		tm.mu.Unlock()
+		return &tokenResult{err: bErr}
 	}
 
 	if tokenResp.Token == "" {
 		noFallback := false
-		return &tokenResult{err: &schemas.BifrostError{
+		bErr := &schemas.BifrostError{
 			IsBifrostError: true,
 			StatusCode:     intPtr(401),
 			AllowFallbacks: &noFallback,
 			Error: &schemas.ErrorField{
 				Message: "copilot token exchange returned empty token; ensure the OAuth access token is valid and the GitHub account has an active Copilot subscription",
 			},
-		}}
+		}
+		// Treated as a permanent/credential fault (empty token with a 200 means the account
+		// or subscription state is wrong, not something a fast retry fixes).
+		tm.mu.Lock()
+		tm.recordFailure(bErr, true)
+		tm.mu.Unlock()
+		return &tokenResult{err: bErr}
 	}
 
 	tm.mu.Lock()
@@ -213,6 +290,7 @@ func (tm *copilotTokenManager) refreshToken() *tokenResult {
 				"url", tokenResp.Endpoints.API, "default", defaultAPIBaseURL)
 		}
 	}
+	tm.clearFailure()
 	t, b := tm.apiToken, tm.apiBase
 	tm.mu.Unlock()
 

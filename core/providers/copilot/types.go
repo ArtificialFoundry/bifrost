@@ -47,4 +47,16 @@ type copilotTokenManager struct {
 	tokenExchangeURL string // URL for token exchange; overridable in tests
 
 	sfGroup singleflight.Group // coalesces concurrent refresh attempts
+
+	// Negative cache: without this, a persistently-failing refresh (e.g. a revoked
+	// OAuth token that GitHub answers with a 5xx, or a network blip) re-enters
+	// refreshToken() on every single request past expiry with no floor on retry rate
+	// — an unbounded retry storm against GitHub. Ported from upstream's
+	// core/providers/githubcopilot/token.go exchangeFailure/copilotTokenPool pattern
+	// (permanentBackoffBase/Cap, transientBackoffBase/Cap). This closes a real
+	// standing prod risk independent of the provider-unification merge. See INC-049
+	// §7 (Lessons Learned).
+	failureErr        *schemas.BifrostError // cached error from the last failed refresh; nil when no failure is cached
+	failureRetryAfter time.Time             // refreshToken() short-circuits to failureErr until this time passes
+	failureAttempts   int                   // consecutive failures, for backoff growth
 }
