@@ -28,16 +28,29 @@
   ENV CGO_ENABLED=1 GOOS=linux
 
   # BIFROST-FORK: inject our patched local modules into the versioned-module build.
-  # transports/go.mod carries `replace` directives that send github.com/maximhq/bifrost/core
-  # -> /core and github.com/maximhq/bifrost/plugins/logging -> /plugins/logging so our
-  # source edits (Copilot provider in core, streaming-persist fix in plugins/logging) are
-  # compiled in. Only the two patched modules are copied as local source; every other
-  # upstream module (framework/governance/routing/...) still resolves from the Go module
-  # proxy at its pinned version (unchanged upstream, nothing to override).
+  # transports/go.mod carries `replace` directives that send
+  # github.com/maximhq/bifrost/core -> /core, .../plugins/logging -> /plugins/logging,
+  # .../framework -> /framework, .../plugins/routing -> /plugins/routing, and
+  # .../plugins/governance -> /plugins/governance, so our source edits (unified
+  # githubcopilot provider + OAuth typed key-config in core, streaming-persist fix in
+  # plugins/logging, config_keys OAuth column + rdb.go mapping in framework, and the
+  # sticky/latency/circuit-breaker routing strategies in plugins/routing) are compiled
+  # in. plugins/governance is copied because plugins/routing's go.mod itself replaces it
+  # locally (see plugins/routing/go.mod's own replace block) — without it here, the
+  # nested replace inside the routing module's go.mod can't resolve during the build.
+  # Every other upstream module (otel/maxim/compat/prompts/semanticcache/telemetry/
+  # modelcatalogresolver/mocker/...) still resolves from the Go module proxy at its
+  # pinned version (unchanged upstream, nothing to override).
   COPY core/go.mod core/go.sum /core/
   COPY core/ /core/
   COPY plugins/logging/go.mod plugins/logging/go.sum /plugins/logging/
   COPY plugins/logging/ /plugins/logging/
+  COPY framework/go.mod framework/go.sum /framework/
+  COPY framework/ /framework/
+  COPY plugins/routing/go.mod plugins/routing/go.sum /plugins/routing/
+  COPY plugins/routing/ /plugins/routing/
+  COPY plugins/governance/go.mod plugins/governance/go.sum /plugins/governance/
+  COPY plugins/governance/ /plugins/governance/
 
   COPY transports/go.mod transports/go.sum ./
   RUN go mod download
