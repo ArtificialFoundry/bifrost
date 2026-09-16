@@ -31,6 +31,7 @@ import (
 
 // githubCopilotProvider implements the Provider interface for GitHub Copilot.
 type githubCopilotProvider struct {
+	providerKey         schemas.ModelProvider
 	logger              schemas.Logger
 	client              *fasthttp.Client
 	streamingClient     *fasthttp.Client
@@ -46,6 +47,24 @@ type githubCopilotProvider struct {
 // from the credential at request time. An explicitly configured base_url still wins, which
 // is what makes GitHub Enterprise Server and local recording proxies work.
 func NewGithubCopilotProvider(config *schemas.ProviderConfig, logger schemas.Logger) (*githubCopilotProvider, error) {
+	return newGithubCopilotProvider(config, schemas.GithubCopilot, logger)
+}
+
+// NewGithubCopilotProviderWithKey creates a provider registered under an explicit identity.
+// This is the path createBaseProvider uses when a config row still carries the legacy
+// "copilot" id: the provider must report that same id from GetProviderKey() or the
+// /api/providers list marks it "error" (not found in GetConfiguredProviders).
+func NewGithubCopilotProviderWithKey(config *schemas.ProviderConfig, providerKey schemas.ModelProvider, logger schemas.Logger) (*githubCopilotProvider, error) {
+	return newGithubCopilotProvider(config, providerKey, logger)
+}
+
+// newGithubCopilotProvider is the shared constructor. providerKey is the identity this
+// provider instance was registered under — for a row whose config_providers.provider is
+// still "copilot" (pre-unification rows, e.g. prod id=5 "agent47nh"), that must be
+// "copilot" so GetProviderKey() matches GetConfiguredProviders() and the /api/providers
+// list reports "active" instead of "error". This mirrors the opencode provider, which
+// stores the effective key the same way.
+func newGithubCopilotProvider(config *schemas.ProviderConfig, providerKey schemas.ModelProvider, logger schemas.Logger) (*githubCopilotProvider, error) {
 	config.CheckAndSetDefaults()
 
 	requestTimeout := time.Second * time.Duration(config.NetworkConfig.DefaultRequestTimeoutInSeconds)
@@ -85,6 +104,7 @@ func NewGithubCopilotProvider(config *schemas.ProviderConfig, logger schemas.Log
 	config.NetworkConfig.BaseURL = strings.TrimRight(config.NetworkConfig.BaseURL, "/")
 
 	return &githubCopilotProvider{
+		providerKey:         providerKey,
 		logger:              logger,
 		client:              client,
 		streamingClient:     streamingClient,
@@ -95,9 +115,9 @@ func NewGithubCopilotProvider(config *schemas.ProviderConfig, logger schemas.Log
 	}, nil
 }
 
-// GetProviderKey returns the provider identifier.
+// GetProviderKey returns the provider identifier this instance was registered under.
 func (p *githubCopilotProvider) GetProviderKey() schemas.ModelProvider {
-	return schemas.GithubCopilot
+	return p.providerKey
 }
 
 // ListModels performs a list models request to the Copilot API.

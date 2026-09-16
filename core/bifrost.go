@@ -4647,7 +4647,7 @@ func (bifrost *Bifrost) createBaseProvider(providerKey schemas.ModelProvider, co
 		// zero-downtime deploy of the unified provider possible. subagent-2's migration
 		// (WBS 3.0) may still rename it later, but this code does not require that first.
 		// See INC-049.
-		return githubcopilot.NewGithubCopilotProvider(config, bifrost.logger)
+		return githubcopilot.NewGithubCopilotProviderWithKey(config, providerKey, bifrost.logger)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", targetProviderKey)
 	}
