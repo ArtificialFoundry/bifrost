@@ -409,6 +409,48 @@ func TestGetAgentFilterDataUsesMembershipFanout(t *testing.T) {
 	require.Equal(t, []AgentFilterKeyPair{{ID: "team-a", Name: "Alpha"}, {ID: "team-b", Name: "Beta"}}, data.Teams)
 }
 
+// TestGetAgentFilterDataAppliesDimensionCeiling verifies the agent filter
+// dropdowns list only the organisations the caller may be shown, like the LLM
+// log dropdowns: a readable row still never names a team, customer, business
+// unit or user outside the ceiling.
+func TestGetAgentFilterDataAppliesDimensionCeiling(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&AgentLog{}))
+	store := &RDBLogStore{db: db, logger: bifrost.NewDefaultLogger(schemas.LogLevelInfo)}
+	userID, userName := "user-a", "Agent User"
+	otherID, otherName := "user-b", "Other User"
+	entries := []*AgentLog{
+		{
+			ID: "ceiling-a", Timestamp: time.Now().UTC(), RecordKind: "request", Status: "success", AgentName: "fixture", RequestID: "request-ceiling-a",
+			UserID: &userID, UserName: &userName,
+			TeamIDsParsed: []string{"team-a", "team-hidden"}, TeamNamesParsed: []string{"Alpha", "Hidden"},
+			CustomerIDsParsed: []string{"customer-a", "customer-hidden"}, CustomerNamesParsed: []string{"Acme", "Hidden Co"},
+			BusinessUnitIDsParsed: []string{"bu-hidden"}, BusinessUnitNamesParsed: []string{"Hidden BU"},
+		},
+		{
+			ID: "ceiling-b", Timestamp: time.Now().UTC(), RecordKind: "request", Status: "success", AgentName: "fixture", RequestID: "request-ceiling-b",
+			UserID: &otherID, UserName: &otherName,
+		},
+	}
+	for _, entry := range entries {
+		require.NoError(t, entry.SerializeFields())
+	}
+	require.NoError(t, agentLogsCreateError(store.BatchCreateAgentLogsIfNotExists(context.Background(), entries)))
+
+	allowed := map[string][]string{"team_id": {"team-a"}, "customer_id": {"customer-a"}, "business_unit_id": {}, "user_id": {userID}}
+	ctx := queryscope.WithDimensionScope(context.Background(), func(col string) ([]string, bool) {
+		ids, ok := allowed[col]
+		return ids, ok
+	})
+	data, err := store.GetAgentFilterData(ctx, nil, 100, "")
+	require.NoError(t, err)
+	require.Equal(t, []AgentFilterKeyPair{{ID: "team-a", Name: "Alpha"}}, data.Teams)
+	require.Equal(t, []AgentFilterKeyPair{{ID: "customer-a", Name: "Acme"}}, data.Customers)
+	require.Empty(t, data.BusinessUnits)
+	require.Equal(t, []AgentFilterKeyPair{{ID: userID, Name: userName}}, data.Users)
+}
+
 func TestA2AAttributionFiltersApplyToRowsStatsAndHistogram(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
