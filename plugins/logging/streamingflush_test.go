@@ -44,7 +44,7 @@ func TestInjectFlushesStreamingCompletionWhenParkRaces(t *testing.T) {
 	}
 
 	loggingHeaders := []string{"x-custom-log"}
-	plugin, err := Init(context.Background(), &Config{LoggingHeaders: &loggingHeaders}, testLogger{}, store, nil, nil)
+	plugin, err := Init(context.Background(), &Config{LoggingHeaders: &loggingHeaders}, testLogger{}, store, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -127,7 +127,7 @@ func TestInjectFlushesStreamingCompletionWhenParkRaces(t *testing.T) {
 // TestInjectFlushesStreamingCompletionWhenParkRaces.
 func TestInjectPersistsSuccessfulStreamingCompletion(t *testing.T) {
 	store := newTestStore(t)
-	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, nil, nil)
+	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}

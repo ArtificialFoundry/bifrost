@@ -41,6 +41,10 @@ export interface RoutingRule {
 	priority: number;
 	enabled: boolean;
 	chain_rule: boolean;
+	strategy: string;
+	sticky_limit?: number;
+	circuit_breaker_threshold?: number;
+	circuit_breaker_cooldown_seconds?: number;
 	query?: RuleGroupType;
 	created_at: string;
 	updated_at: string;
@@ -57,6 +61,10 @@ export interface CreateRoutingRuleRequest {
 	priority: number;
 	enabled?: boolean;
 	chain_rule?: boolean;
+	strategy?: string;
+	sticky_limit?: number;
+	circuit_breaker_threshold?: number;
+	circuit_breaker_cooldown_seconds?: number;
 	query?: RuleGroupType;
 }
 

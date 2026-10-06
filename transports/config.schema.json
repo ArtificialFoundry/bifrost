@@ -3808,6 +3808,27 @@
           "default": false,
           "description": "If true, re-evaluates routing chain after this rule matches"
         },
+        "strategy": {
+          "type": "string",
+          "enum": ["weighted", "sticky-round-robin", "latency-based", "circuit-breaker"],
+          "default": "weighted",
+          "description": "Target-selection strategy. weighted = stock upstream random-by-weight; the others activate UpperSubstrate fork state machines in the routing plugin."
+        },
+        "sticky_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "For sticky-round-robin: consecutive served requests before rotation advances to the next target."
+        },
+        "circuit_breaker_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "For circuit-breaker: consecutive failures that open the breaker for a target."
+        },
+        "circuit_breaker_cooldown_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "For circuit-breaker: how long an open breaker stays open before closing."
+        },
         "targets": {
           "type": "array",
           "minItems": 1,
